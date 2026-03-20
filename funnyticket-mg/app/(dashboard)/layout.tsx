@@ -46,6 +46,14 @@ export default async function DashboardLayout({
   }
 
   const isAdmin = profile.role === 'admin'
+  const isSuperAdmin = profile.role === 'superadmin'
+
+  const superAdminLinks = [
+    { href: '/superadmin', label: 'Vue d\'ensemble' },
+    { href: '/superadmin/users', label: 'Utilisateurs' },
+    { href: '/superadmin/vendors', label: 'Vendeurs' },
+    { href: '/settings', label: 'Paramètres' },
+  ]
 
   const adminLinks = [
     { href: '/admin', label: 'Tableau de bord' },
@@ -61,7 +69,7 @@ export default async function DashboardLayout({
     { href: '/settings', label: 'Paramètres' },
   ]
 
-  const navLinks = isAdmin ? adminLinks : clientLinks
+  const navLinks = isSuperAdmin ? superAdminLinks : isAdmin ? adminLinks : clientLinks
 
   return (
     <CartProvider>
@@ -72,7 +80,7 @@ export default async function DashboardLayout({
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-8">
               <Link
-                href={isAdmin ? '/admin' : '/client'}
+                href={isSuperAdmin ? '/superadmin' : isAdmin ? '/admin' : '/client'}
                 className="text-xl font-bold text-indigo-600 dark:text-indigo-400"
               >
                 🎫 FunnyTicket
@@ -82,12 +90,12 @@ export default async function DashboardLayout({
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {!isAdmin && <CartBadge />}
+              {!isAdmin && !isSuperAdmin && <CartBadge />}
               <ThemeToggle />
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{profile.full_name}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {isAdmin ? 'Administrateur' : 'Client'}
+                  {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Administrateur' : 'Client'}
                 </p>
               </div>
               <form action={signOut}>

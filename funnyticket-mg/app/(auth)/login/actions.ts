@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export async function login(formData: FormData) {
   const supabase = await createClient()
@@ -22,7 +23,12 @@ export async function login(formData: FormData) {
     email = identifier
   } else {
     // User typed an identifiant — resolve to auth email
-    const { data: profile } = await supabase
+    // Use service role to bypass RLS (user is not authenticated yet)
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    const { data: profile } = await serviceClient
       .from('profiles')
       .select('id, email, identifiant')
       .eq('identifiant', identifier)
@@ -57,7 +63,8 @@ export async function login(formData: FormData) {
       .single()
 
     revalidatePath('/', 'layout')
-    redirect(profile?.role === 'admin' ? '/admin' : '/client')
+    const role = profile?.role
+    redirect(role === 'superadmin' ? '/superadmin' : role === 'admin' ? '/admin' : '/client')
   }
 
   revalidatePath('/', 'layout')

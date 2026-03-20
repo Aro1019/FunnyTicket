@@ -1,4 +1,4 @@
-export type UserRole = 'user' | 'admin'
+export type UserRole = 'user' | 'admin' | 'superadmin'
 export type TicketStatus = 'pending' | 'active' | 'expired' | 'cancelled'
 export type PaymentStatus = 'pending' | 'confirmed' | 'rejected'
 export type PaymentMethod = 'mvola' | 'orange_money' | 'airtel_money' | 'cash'

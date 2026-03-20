@@ -32,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname
 
   // Redirect unauthenticated users from protected routes
-  if (!user && (path.startsWith('/client') || path.startsWith('/admin') || path === '/settings')) {
+  if (!user && (path.startsWith('/client') || path.startsWith('/admin') || path.startsWith('/superadmin') || path === '/settings')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
@@ -47,12 +47,27 @@ export async function updateSession(request: NextRequest) {
       .single()
 
     const url = request.nextUrl.clone()
-    // If we can't read the profile, default to /client — the layout will handle it
-    url.pathname = profile?.role === 'admin' ? '/admin' : '/client'
+    const role = profile?.role
+    url.pathname = role === 'superadmin' ? '/superadmin' : role === 'admin' ? '/admin' : '/client'
     return NextResponse.redirect(url)
   }
 
-  // Protect admin routes — only admins allowed
+  // Protect superadmin routes — only superadmins allowed
+  if (user && path.startsWith('/superadmin')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile && profile.role !== 'superadmin') {
+      const url = request.nextUrl.clone()
+      url.pathname = profile.role === 'admin' ? '/admin' : '/client'
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // Protect admin routes — only admins (and superadmins) allowed
   if (user && path.startsWith('/admin')) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -60,9 +75,7 @@ export async function updateSession(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    // Only redirect if we successfully got a profile and it's not admin
-    // If query failed (RLS issue), let the dashboard layout handle it
-    if (profile && profile.role !== 'admin') {
+    if (profile && profile.role !== 'admin' && profile.role !== 'superadmin') {
       const url = request.nextUrl.clone()
       url.pathname = '/client'
       return NextResponse.redirect(url)
