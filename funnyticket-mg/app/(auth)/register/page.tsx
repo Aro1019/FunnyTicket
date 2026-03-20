@@ -39,7 +39,7 @@ async function RegisterContent({
             type="text"
             required
             minLength={3}
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="votre_identifiant"
           />
           <p className="mt-1 text-xs text-gray-400">Unique, min. 3 caractères (lettres, chiffres, _ ou -)</p>
@@ -53,7 +53,7 @@ async function RegisterContent({
             name="fullName"
             type="text"
             required
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="Jean Dupont"
           />
         </div>
@@ -66,7 +66,7 @@ async function RegisterContent({
             name="phone"
             type="tel"
             required
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="034 00 000 00"
           />
         </div>
@@ -78,7 +78,7 @@ async function RegisterContent({
             id="email"
             name="email"
             type="email"
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="votre@email.com"
           />
         </div>
@@ -88,6 +88,7 @@ async function RegisterContent({
           label="Mot de passe"
           minLength={8}
           showStrength={true}
+          darkMode={false}
         />
         <SubmitButton pendingText="Inscription..." className="w-full">
           S&apos;inscrire
@@ -98,6 +99,15 @@ async function RegisterContent({
         Déjà un compte ?{' '}
         <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
           Se connecter
+        </Link>
+      </p>
+
+      <p className="mt-3 text-center">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          ← Retour à l&apos;accueil
         </Link>
       </p>
     </div>

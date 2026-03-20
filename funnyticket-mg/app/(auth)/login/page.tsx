@@ -46,7 +46,7 @@ async function LoginContent({
             name="identifier"
             type="text"
             required
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="votre_identifiant ou email"
           />
         </div>
@@ -54,7 +54,16 @@ async function LoginContent({
           id="password"
           name="password"
           label="Mot de passe"
+          darkMode={false}
         />
+        <div className="flex justify-end">
+          <Link
+            href="/forgot-password"
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            Mot de passe oublié ?
+          </Link>
+        </div>
         <SubmitButton pendingText="Connexion..." className="w-full">
           Se connecter
         </SubmitButton>
@@ -64,6 +73,15 @@ async function LoginContent({
         Pas encore de compte ?{' '}
         <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
           S&apos;inscrire
+        </Link>
+      </p>
+
+      <p className="mt-3 text-center">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          ← Retour à l&apos;accueil
         </Link>
       </p>
     </div>

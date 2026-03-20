@@ -5,6 +5,12 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createHotspotUser } from '@/lib/mikrotik'
 
+const profileMap: Record<number, string> = {
+  12: '12h',
+  168: '1semaine',
+  720: '1mois',
+}
+
 export async function confirmPayment(formData: FormData) {
   const supabase = await createClient()
   const {
@@ -12,7 +18,6 @@ export async function confirmPayment(formData: FormData) {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Verify admin role
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -23,10 +28,10 @@ export async function confirmPayment(formData: FormData) {
 
   const paymentId = formData.get('paymentId') as string
 
-  // Get payment with ticket and pack info
+  // Get payment
   const { data: payment } = await supabase
     .from('payments')
-    .select('*, ticket:tickets(*, pack:packs(*))')
+    .select('*, ticket:tickets(*, pack:packs(*)), order:orders(*)')
     .eq('id', paymentId)
     .single()
 
@@ -34,49 +39,94 @@ export async function confirmPayment(formData: FormData) {
     redirect('/admin/payments?error=payment_not_found')
   }
 
-  const ticket = Array.isArray(payment.ticket)
-    ? payment.ticket[0]
-    : payment.ticket
-  const pack = ticket?.pack
-  const packData = Array.isArray(pack) ? pack[0] : pack
-
-  // Map pack duration to MikroTik profile name
-  const profileMap: Record<number, string> = {
-    12: '12h',
-    168: '1semaine',
-    720: '1mois',
-  }
-  const mikrotikProfile = profileMap[packData?.duration_hours ?? 0] ?? '12h'
-
-  // Create hotspot user on MikroTik
-  const mikrotikResult = await createHotspotUser(
-    ticket.login_hotspot,
-    ticket.password_hotspot,
-    mikrotikProfile
-  )
-
-  if (!mikrotikResult.success) {
-    redirect(
-      '/admin/payments?error=' +
-        encodeURIComponent(mikrotikResult.error ?? 'Erreur MikroTik')
-    )
-  }
-
-  // Calculate expiration
   const now = new Date()
-  const expiresAt = new Date(
-    now.getTime() + (packData?.duration_hours ?? 12) * 60 * 60 * 1000
-  )
 
-  // Update ticket status to active
-  await supabase
-    .from('tickets')
-    .update({
-      status: 'active',
-      activated_at: now.toISOString(),
-      expires_at: expiresAt.toISOString(),
-    })
-    .eq('id', ticket.id)
+  // Determine if this is an order-based or legacy single-ticket payment
+  if (payment.order_id) {
+    // ── Order-based: activate all tickets in the order ──
+    const { data: tickets } = await supabase
+      .from('tickets')
+      .select('*, pack:packs(*)')
+      .eq('order_id', payment.order_id)
+
+    if (!tickets?.length) {
+      redirect('/admin/payments?error=no_tickets_in_order')
+    }
+
+    // Create MikroTik users for all tickets
+    for (const ticket of tickets) {
+      const pack = Array.isArray(ticket.pack) ? ticket.pack[0] : ticket.pack
+      const mikrotikProfile = profileMap[pack?.duration_hours ?? 0] ?? '12h'
+
+      const result = await createHotspotUser(
+        ticket.login_hotspot,
+        ticket.password_hotspot,
+        mikrotikProfile
+      )
+
+      if (!result.success) {
+        redirect(
+          '/admin/payments?error=' +
+            encodeURIComponent(
+              `Erreur MikroTik pour ${ticket.login_hotspot}: ${result.error ?? 'inconnue'}`
+            )
+        )
+      }
+
+      const expiresAt = new Date(
+        now.getTime() + (pack?.duration_hours ?? 12) * 3600 * 1000
+      )
+
+      await supabase
+        .from('tickets')
+        .update({
+          status: 'active',
+          activated_at: now.toISOString(),
+          expires_at: expiresAt.toISOString(),
+        })
+        .eq('id', ticket.id)
+    }
+
+    // Update order status
+    await supabase
+      .from('orders')
+      .update({ status: 'confirmed' })
+      .eq('id', payment.order_id)
+  } else {
+    // ── Legacy single-ticket payment ──
+    const ticket = Array.isArray(payment.ticket)
+      ? payment.ticket[0]
+      : payment.ticket
+    const pack = ticket?.pack
+    const packData = Array.isArray(pack) ? pack[0] : pack
+    const mikrotikProfile = profileMap[packData?.duration_hours ?? 0] ?? '12h'
+
+    const mikrotikResult = await createHotspotUser(
+      ticket.login_hotspot,
+      ticket.password_hotspot,
+      mikrotikProfile
+    )
+
+    if (!mikrotikResult.success) {
+      redirect(
+        '/admin/payments?error=' +
+          encodeURIComponent(mikrotikResult.error ?? 'Erreur MikroTik')
+      )
+    }
+
+    const expiresAt = new Date(
+      now.getTime() + (packData?.duration_hours ?? 12) * 3600 * 1000
+    )
+
+    await supabase
+      .from('tickets')
+      .update({
+        status: 'active',
+        activated_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+      })
+      .eq('id', ticket.id)
+  }
 
   // Confirm payment
   await supabase
@@ -100,7 +150,6 @@ export async function rejectPayment(formData: FormData) {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Verify admin role
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -111,10 +160,9 @@ export async function rejectPayment(formData: FormData) {
 
   const paymentId = formData.get('paymentId') as string
 
-  // Get payment to find ticket
   const { data: payment } = await supabase
     .from('payments')
-    .select('ticket_id')
+    .select('ticket_id, order_id')
     .eq('id', paymentId)
     .single()
 
@@ -132,11 +180,24 @@ export async function rejectPayment(formData: FormData) {
     })
     .eq('id', paymentId)
 
-  // Cancel ticket
-  await supabase
-    .from('tickets')
-    .update({ status: 'cancelled' })
-    .eq('id', payment.ticket_id)
+  if (payment.order_id) {
+    // Cancel all tickets in the order
+    await supabase
+      .from('tickets')
+      .update({ status: 'cancelled' })
+      .eq('order_id', payment.order_id)
+
+    await supabase
+      .from('orders')
+      .update({ status: 'rejected' })
+      .eq('id', payment.order_id)
+  } else if (payment.ticket_id) {
+    // Legacy single ticket
+    await supabase
+      .from('tickets')
+      .update({ status: 'cancelled' })
+      .eq('id', payment.ticket_id)
+  }
 
   revalidatePath('/admin')
   revalidatePath('/admin/payments')

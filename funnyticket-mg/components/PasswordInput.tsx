@@ -10,6 +10,7 @@ export function PasswordInput({
   required = true,
   minLength,
   showStrength = false,
+  darkMode = true,
 }: {
   id: string
   name: string
@@ -18,6 +19,7 @@ export function PasswordInput({
   required?: boolean
   minLength?: number
   showStrength?: boolean
+  darkMode?: boolean
 }) {
   const [show, setShow] = useState(false)
   const [value, setValue] = useState('')
@@ -26,7 +28,7 @@ export function PasswordInput({
 
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+      <label htmlFor={id} className={`mb-1 block text-sm font-medium text-gray-700 ${darkMode ? 'dark:text-gray-300' : ''}`}>
         {label}
       </label>
       <div className="relative">
@@ -38,7 +40,7 @@ export function PasswordInput({
           minLength={minLength}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-4 py-2.5 pr-11 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+          className={`w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 pr-11 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400 ${darkMode ? 'dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:focus:ring-indigo-800 dark:placeholder:text-gray-500' : ''}`}
           placeholder={placeholder}
         />
         <button
@@ -79,7 +81,7 @@ export function PasswordInput({
                         : strength.level === 3
                           ? 'bg-yellow-500'
                           : 'bg-green-500'
-                    : 'bg-gray-200'
+                    : darkMode ? 'bg-gray-200 dark:bg-gray-600' : 'bg-gray-200'
                 }`}
               />
             ))}
@@ -98,7 +100,7 @@ export function PasswordInput({
           {strength.tips.length > 0 && (
             <ul className="mt-1 space-y-0.5">
               {strength.tips.map((tip, i) => (
-                <li key={i} className="text-xs text-gray-500">• {tip}</li>
+                <li key={i} className={`text-xs text-gray-500 ${darkMode ? 'dark:text-gray-400' : ''}`}>• {tip}</li>
               ))}
             </ul>
           )}

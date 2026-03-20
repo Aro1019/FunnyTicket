@@ -1,6 +1,5 @@
-import crypto from 'crypto'
-
 export function generateHotspotCredentials() {
+  const crypto = require('crypto')
   const login = 'FT-' + crypto.randomBytes(3).toString('hex').toUpperCase()
   const password = crypto.randomBytes(4).toString('hex').toUpperCase()
   return { login, password }

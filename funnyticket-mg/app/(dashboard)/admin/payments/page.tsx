@@ -13,7 +13,7 @@ export default async function AdminPaymentsPage({
 
   const { data: payments } = await supabase
     .from('payments')
-    .select('*, ticket:tickets(*, pack:packs(*)), user:profiles(*)')
+    .select('*, ticket:tickets(*, pack:packs(*)), user:profiles(*), order:orders(*)')
     .order('created_at', { ascending: false })
 
   const statusLabels: Record<string, { label: string; color: string }> = {
@@ -58,12 +58,13 @@ export default async function AdminPaymentsPage({
                 : payment.ticket
               const pack = ticket?.pack
               const packData = Array.isArray(pack) ? pack[0] : pack
+              const isOrder = !!payment.order_id
 
               return (
                 <div key={payment.id} className="p-6">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <p className="font-semibold text-gray-800 dark:text-gray-100">
                           {user?.full_name}
                         </p>
@@ -72,6 +73,11 @@ export default async function AdminPaymentsPage({
                         >
                           {status.label}
                         </span>
+                        {isOrder && (
+                          <span className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                            📦 Commande
+                          </span>
+                        )}
                         {payment.payment_method === 'cash' && (
                           <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
                             💵 Cash
@@ -79,7 +85,9 @@ export default async function AdminPaymentsPage({
                         )}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                        {packData?.name} · {formatPrice(payment.amount)}
+                        {isOrder
+                          ? `${formatPrice(payment.amount)} (commande multi-tickets)`
+                          : `${packData?.name} · ${formatPrice(payment.amount)}`}
                       </p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {payment.payment_method === 'cash'

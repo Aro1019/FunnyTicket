@@ -32,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname
 
   // Redirect unauthenticated users from protected routes
-  if (!user && (path.startsWith('/client') || path.startsWith('/admin'))) {
+  if (!user && (path.startsWith('/client') || path.startsWith('/admin') || path === '/settings')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

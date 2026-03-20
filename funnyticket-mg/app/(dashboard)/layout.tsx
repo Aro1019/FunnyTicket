@@ -5,6 +5,8 @@ import { signOut } from './actions'
 import { SubmitButton } from '@/components/SubmitButton'
 import { NavLinks } from '@/components/NavLinks'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { CartProvider } from '@/components/CartProvider'
+import { CartBadge } from '@/components/CartBadge'
 
 export default async function DashboardLayout({
   children,
@@ -47,18 +49,22 @@ export default async function DashboardLayout({
 
   const adminLinks = [
     { href: '/admin', label: 'Tableau de bord' },
+    { href: '/admin/tickets', label: 'Suivi tickets' },
     { href: '/admin/payments', label: 'Paiements' },
     { href: '/admin/payment-methods', label: 'Config paiement' },
+    { href: '/settings', label: 'Paramètres' },
   ]
 
   const clientLinks = [
     { href: '/client', label: 'Acheter un ticket' },
     { href: '/client/tickets', label: 'Mes tickets' },
+    { href: '/settings', label: 'Paramètres' },
   ]
 
   const navLinks = isAdmin ? adminLinks : clientLinks
 
   return (
+    <CartProvider>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Navbar */}
       <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
@@ -76,6 +82,7 @@ export default async function DashboardLayout({
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {!isAdmin && <CartBadge />}
               <ThemeToggle />
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{profile.full_name}</p>
@@ -101,5 +108,6 @@ export default async function DashboardLayout({
       {/* Content */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
     </div>
+    </CartProvider>
   )
 }
