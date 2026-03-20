@@ -22,11 +22,11 @@ export async function GET(request: NextRequest) {
   const now = new Date()
 
   // Find active tickets expiring within the next alert windows
-  // Adapted for Hobby plan (runs every hour)
-  // Window of ±30min to catch tickets between hourly runs
+  // Runs every 5 minutes via cron-job.org — window of ±3min for precision
   const alertWindows = [
-    { minutes: 60, type: '1h', label: '1 heure', window: 30 },
-    { minutes: 120, type: '2h', label: '2 heures', window: 30 },
+    { minutes: 60, type: '1h', label: '1 heure', window: 3 },
+    { minutes: 30, type: '30m', label: '30 minutes', window: 3 },
+    { minutes: 5, type: '5m', label: '5 minutes', window: 3 },
   ]
 
   let totalSent = 0
