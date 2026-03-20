@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { forgotPassword } from './actions'
 import { SubmitButton } from '@/components/SubmitButton'
 
+
 export default async function ForgotPasswordPage({
   searchParams,
 }: {
