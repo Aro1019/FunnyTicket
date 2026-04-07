@@ -1,12 +1,11 @@
-// MikroTik RouterOS REST API client (RouterOS 7+)
+// MikroTik RouterOS API client (port 8728)
 
-const MIKROTIK_URL = process.env.MIKROTIK_API_URL
-const MIKROTIK_USER = process.env.MIKROTIK_API_USER
-const MIKROTIK_PASS = process.env.MIKROTIK_API_PASSWORD
+import { RouterOSClient } from 'routeros-client'
 
-function getAuthHeader(): string {
-  return 'Basic ' + Buffer.from(`${MIKROTIK_USER}:${MIKROTIK_PASS}`).toString('base64')
-}
+const MIKROTIK_HOST = process.env.MIKROTIK_API_HOST ?? '192.168.10.254'
+const MIKROTIK_USER = process.env.MIKROTIK_API_USER ?? 'admin'
+const MIKROTIK_PASS = process.env.MIKROTIK_API_PASSWORD ?? ''
+const MIKROTIK_PORT = parseInt(process.env.MIKROTIK_API_PORT ?? '8728')
 
 export interface HotspotSessionInfo {
   isOnline: boolean
@@ -27,10 +26,23 @@ interface ActiveSessionsCache {
 let sessionsCache: ActiveSessionsCache | null = null
 const CACHE_TTL_MS = 30_000 // 30 seconds
 
-/**
- * Fetch ALL active hotspot sessions from MikroTik in a single request,
- * cached for 30 seconds. Returns a Map keyed by username.
- */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function withClient<T>(fn: (api: any) => Promise<T>): Promise<T> {
+  const client = new RouterOSClient({
+    host: MIKROTIK_HOST,
+    user: MIKROTIK_USER,
+    password: MIKROTIK_PASS,
+    port: MIKROTIK_PORT,
+    timeout: 10,
+  })
+  try {
+    const api = await client.connect()
+    return await fn(api as never)
+  } finally {
+    try { client.close() } catch { /* ignore */ }
+  }
+}
+
 async function getAllActiveSessions(): Promise<Map<string, HotspotSessionInfo>> {
   const now = Date.now()
   if (sessionsCache && now - sessionsCache.timestamp < CACHE_TTL_MS) {
@@ -40,35 +52,24 @@ async function getAllActiveSessions(): Promise<Map<string, HotspotSessionInfo>> 
   const map = new Map<string, HotspotSessionInfo>()
 
   try {
-    const response = await fetch(`${MIKROTIK_URL}/rest/ip/hotspot/active`, {
-      headers: { Authorization: getAuthHeader() },
-      cache: 'no-store',
+    await withClient(async (api) => {
+      const menu = api.menu('/ip/hotspot/active')
+      const sessions = await menu.getAll()
+
+      for (const s of sessions) {
+        const user = s.user as string | undefined
+        if (!user) continue
+        const uptime = (s.uptime as string) ?? ''
+        map.set(user, {
+          isOnline: true,
+          uptime,
+          uptimeSeconds: uptime ? parseMikrotikDuration(uptime) : 0,
+          address: s.address as string | undefined,
+          bytesIn: s.bytesIn ? parseInt(String(s.bytesIn)) : undefined,
+          bytesOut: s.bytesOut ? parseInt(String(s.bytesOut)) : undefined,
+        })
+      }
     })
-
-    if (!response.ok) {
-      sessionsCache = { data: map, timestamp: now }
-      return map
-    }
-
-    const sessions = await response.json()
-    if (!Array.isArray(sessions)) {
-      sessionsCache = { data: map, timestamp: now }
-      return map
-    }
-
-    for (const s of sessions) {
-      const user = s.user as string | undefined
-      if (!user) continue
-      const uptime = s.uptime ?? ''
-      map.set(user, {
-        isOnline: true,
-        uptime,
-        uptimeSeconds: uptime ? parseMikrotikDuration(uptime) : 0,
-        address: s.address,
-        bytesIn: s['bytes-in'] ? parseInt(s['bytes-in']) : undefined,
-        bytesOut: s['bytes-out'] ? parseInt(s['bytes-out']) : undefined,
-      })
-    }
   } catch {
     // On error, return empty map — will retry next poll
   }
@@ -94,9 +95,6 @@ function parseMikrotikDuration(duration: string): number {
   return seconds
 }
 
-/**
- * Get session info for a specific hotspot user (uses the global cache)
- */
 export async function getHotspotActiveSession(
   login: string
 ): Promise<HotspotSessionInfo> {
@@ -110,20 +108,10 @@ export async function createHotspotUser(
   profile: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch(`${MIKROTIK_URL}/rest/ip/hotspot/user`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: getAuthHeader(),
-      },
-      body: JSON.stringify({ name, password, profile }),
+    await withClient(async (api) => {
+      const menu = api.menu('/ip/hotspot/user')
+      await menu.add({ name, password, profile })
     })
-
-    if (!response.ok) {
-      const error = await response.text()
-      return { success: false, error }
-    }
-
     return { success: true }
   } catch (error) {
     return {
@@ -137,37 +125,12 @@ export async function removeHotspotUser(
   name: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // First find the user by name
-    const findResponse = await fetch(
-      `${MIKROTIK_URL}/rest/ip/hotspot/user?name=${encodeURIComponent(name)}`,
-      {
-        headers: { Authorization: getAuthHeader() },
-      }
-    )
-
-    if (!findResponse.ok) {
-      return { success: false, error: 'Utilisateur non trouvé' }
-    }
-
-    const users = await findResponse.json()
-    if (!users.length) {
-      return { success: false, error: 'Utilisateur non trouvé' }
-    }
-
-    const userId = users[0]['.id']
-
-    const deleteResponse = await fetch(
-      `${MIKROTIK_URL}/rest/ip/hotspot/user/${userId}`,
-      {
-        method: 'DELETE',
-        headers: { Authorization: getAuthHeader() },
-      }
-    )
-
-    if (!deleteResponse.ok) {
-      return { success: false, error: 'Erreur lors de la suppression' }
-    }
-
+    await withClient(async (api) => {
+      const menu = api.menu('/ip/hotspot/user')
+      const users = await menu.where('name', name).getAll()
+      if (!users.length) throw new Error('Utilisateur non trouvé')
+      await menu.remove(users[0].id)
+    })
     return { success: true }
   } catch (error) {
     return {

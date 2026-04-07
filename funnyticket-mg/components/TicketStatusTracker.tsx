@@ -28,6 +28,16 @@ interface TicketStatus {
   // Admin fields
   user_name?: string
   user_identifiant?: string
+  payment_id?: string
+  payment_method?: string
+  payment_status?: string
+}
+
+const paymentMethodLabels: Record<string, string> = {
+  cash: 'Espèces',
+  mvola: 'MVola',
+  orange_money: 'Orange Money',
+  airtel_money: 'Airtel Money',
 }
 
 function formatTimeLeft(seconds: number): string {
@@ -83,16 +93,37 @@ const usageStatusConfig = {
   },
 }
 
-function TicketCard({ ticket, showUser }: { ticket: TicketStatus; showUser?: boolean }) {
+function TicketCard({ ticket, showUser, onRefresh }: { ticket: TicketStatus; showUser?: boolean; onRefresh?: () => void }) {
   const config = usageStatusConfig[ticket.usageStatus]
   const [localRemaining, setLocalRemaining] = useState(ticket.remainingSeconds)
   const [localProgress, setLocalProgress] = useState(ticket.progress)
+  const [actionLoading, setActionLoading] = useState<'confirm' | 'reject' | null>(null)
 
   // Live countdown: tick every second for active tickets
   useEffect(() => {
     setLocalRemaining(ticket.remainingSeconds)
     setLocalProgress(ticket.progress)
   }, [ticket.remainingSeconds, ticket.progress])
+
+  async function handlePaymentAction(action: 'confirm' | 'reject') {
+    if (!ticket.payment_id || actionLoading) return
+    setActionLoading(action)
+    try {
+      const res = await fetch(`/api/admin/payments/${ticket.payment_id}/${action}`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Erreur')
+      } else {
+        onRefresh?.()
+      }
+    } catch {
+      alert('Erreur réseau')
+    } finally {
+      setActionLoading(null)
+    }
+  }
 
   useEffect(() => {
     if (ticket.usageStatus !== 'in_use' && ticket.usageStatus !== 'not_started') return
@@ -143,7 +174,13 @@ function TicketCard({ ticket, showUser }: { ticket: TicketStatus; showUser?: boo
               </span>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              Acheté le {new Date(ticket.created_at).toLocaleDateString('fr-FR')}
+              Acheté le {new Date(ticket.created_at).toLocaleString('fr-FR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
             </p>
           </div>
 
@@ -262,13 +299,58 @@ function TicketCard({ ticket, showUser }: { ticket: TicketStatus; showUser?: boo
       {/* Pending ticket info */}
       {ticket.status === 'pending' && (
         <div className="px-5 pb-5">
-          <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-4 text-center">
-            <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
+          <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-4">
+            <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium text-center">
               En attente de validation
             </p>
-            <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-              Votre paiement est en cours de vérification
-            </p>
+            {showUser && ticket.payment_method && (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 text-center">
+                Méthode de paiement : {paymentMethodLabels[ticket.payment_method] ?? ticket.payment_method}
+              </p>
+            )}
+            {!showUser && (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 text-center">
+                Votre paiement est en cours de vérification
+              </p>
+            )}
+            {showUser && ticket.payment_id && ticket.payment_status === 'pending' && (
+              <div className="flex items-center justify-center gap-3 mt-3">
+                <button
+                  onClick={() => handlePaymentAction('confirm')}
+                  disabled={actionLoading !== null}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {actionLoading === 'confirm' ? (
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  Valider
+                </button>
+                <button
+                  onClick={() => handlePaymentAction('reject')}
+                  disabled={actionLoading !== null}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {actionLoading === 'reject' ? (
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  Rejeter
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -338,7 +420,7 @@ export default function TicketStatusTracker({ showUser = false }: { showUser?: b
       </div>
       <div className="space-y-4">
         {tickets.map((ticket) => (
-          <TicketCard key={ticket.id} ticket={ticket} showUser={showUser} />
+          <TicketCard key={ticket.id} ticket={ticket} showUser={showUser} onRefresh={fetchStatus} />
         ))}
       </div>
     </div>

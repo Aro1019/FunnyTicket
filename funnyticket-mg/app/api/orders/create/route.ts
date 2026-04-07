@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
+import { createHotspotUser } from '@/lib/mikrotik'
+
+const profileMap: Record<number, string> = {
+  12: '12h',
+  168: '1semaine',
+  720: '1mois',
+}
 
 interface CartItemPayload {
   packId: string
@@ -24,7 +31,6 @@ export async function POST(request: NextRequest) {
   const cartItemsRaw = formData.get('cartItems') as string
   const method = formData.get('method') as string
   const methodId = formData.get('methodId') as string
-  const proofMode = formData.get('proofMode') as string | null
   const reference = formData.get('reference') as string | null
   const screenshot = formData.get('screenshot') as File | null
 
@@ -58,13 +64,28 @@ export async function POST(request: NextRequest) {
 
   const isCash = method === 'cash'
 
-  // Validate proof for non-cash
+  // Validate proof for non-cash: both reference AND screenshot required
   if (!isCash) {
-    if (proofMode === 'reference' && !reference?.trim()) {
-      return NextResponse.json({ error: 'Référence requise' }, { status: 400 })
+    if (!reference?.trim()) {
+      return NextResponse.json({ error: 'Référence de transaction requise' }, { status: 400 })
     }
-    if (proofMode === 'screenshot' && (!screenshot || screenshot.size === 0)) {
-      return NextResponse.json({ error: 'Capture requise' }, { status: 400 })
+    if (!screenshot || screenshot.size === 0) {
+      return NextResponse.json({ error: 'Capture d\'écran requise' }, { status: 400 })
+    }
+
+    // Check for duplicate reference
+    const { data: existingPayment } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('reference', reference.trim())
+      .limit(1)
+      .maybeSingle()
+
+    if (existingPayment) {
+      return NextResponse.json(
+        { error: 'Cette référence de transaction a déjà été utilisée.' },
+        { status: 400 }
+      )
     }
   }
 
@@ -92,7 +113,7 @@ export async function POST(request: NextRequest) {
 
   // Upload screenshot if provided
   let screenshotUrl: string | null = null
-  if (proofMode === 'screenshot' && screenshot && screenshot.size > 0) {
+  if (screenshot && screenshot.size > 0) {
     const ext = screenshot.name.split('.').pop() || 'jpg'
     const path = `${user.id}/${Date.now()}.${ext}`
 
@@ -154,7 +175,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Create payment record
-  const { error: paymentError } = await supabase.from('payments').insert({
+  const { data: payment, error: paymentError } = await supabase.from('payments').insert({
     order_id: order.id,
     user_id: user.id,
     amount: totalAmount,
@@ -162,11 +183,49 @@ export async function POST(request: NextRequest) {
     payment_method_id: methodId || null,
     reference: reference?.trim() || null,
     screenshot_url: screenshotUrl,
-    status: 'pending',
-  })
+    status: isCash ? 'pending' : 'confirmed',
+  }).select().single()
 
-  if (paymentError) {
+  if (paymentError || !payment) {
     return NextResponse.json({ error: 'Erreur création paiement' }, { status: 500 })
+  }
+
+  // Auto-confirm mobile money: create MikroTik users and activate tickets
+  if (!isCash) {
+    const { data: createdTickets } = await supabase
+      .from('tickets')
+      .select('*, pack:packs(*)')
+      .eq('order_id', order.id)
+
+    for (const ticket of createdTickets ?? []) {
+      const pack = Array.isArray(ticket.pack) ? ticket.pack[0] : ticket.pack
+      const mikrotikProfile = profileMap[pack?.duration_hours ?? 0] ?? '12h'
+
+      const result = await createHotspotUser(
+        ticket.login_hotspot,
+        ticket.password_hotspot,
+        mikrotikProfile
+      )
+
+      if (!result.success) {
+        return NextResponse.json(
+          { error: `Erreur MikroTik pour ${ticket.login_hotspot}: ${result.error ?? 'inconnue'}` },
+          { status: 500 }
+        )
+      }
+
+      // Set to active but do NOT set activated_at / expires_at yet
+      // Timer starts only when client connects to MikroTik
+      await supabase
+        .from('tickets')
+        .update({ status: 'active' })
+        .eq('id', ticket.id)
+    }
+
+    await supabase
+      .from('orders')
+      .update({ status: 'confirmed' })
+      .eq('id', order.id)
   }
 
   return NextResponse.json({ success: true, orderId: order.id })

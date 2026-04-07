@@ -4,6 +4,13 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
+import { createHotspotUser } from '@/lib/mikrotik'
+
+const profileMap: Record<number, string> = {
+  12: '12h',
+  168: '1semaine',
+  720: '1mois',
+}
 
 export async function confirmPurchase(formData: FormData) {
   const supabase = await createClient()
@@ -16,7 +23,6 @@ export async function confirmPurchase(formData: FormData) {
   const packId = formData.get('packId') as string
   const method = formData.get('method') as string
   const methodId = formData.get('methodId') as string
-  const proofMode = formData.get('proofMode') as string
   const reference = formData.get('reference') as string | null
   const screenshot = formData.get('screenshot') as File | null
 
@@ -26,13 +32,26 @@ export async function confirmPurchase(formData: FormData) {
 
   const isCash = method === 'cash'
 
-  // Validate proof for non-cash payments
+  // Validate proof for non-cash payments: both reference AND screenshot required
   if (!isCash) {
-    if (proofMode === 'reference' && !reference?.trim()) {
+    if (!reference?.trim()) {
       redirect(`/client/purchase/${packId}/confirm?method=${method}&methodId=${methodId}&error=reference_required`)
     }
-    if (proofMode === 'screenshot' && (!screenshot || screenshot.size === 0)) {
+    if (!screenshot || screenshot.size === 0) {
       redirect(`/client/purchase/${packId}/confirm?method=${method}&methodId=${methodId}&error=screenshot_required`)
+    }
+
+    // Check for duplicate reference
+    const { data: existingPayment } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('reference', reference.trim())
+      .limit(1)
+      .maybeSingle()
+
+    if (existingPayment) {
+      redirect(`/client/purchase/${packId}/confirm?method=${method}&methodId=${methodId}&error=` +
+        encodeURIComponent('Cette référence de transaction a déjà été utilisée.'))
     }
   }
 
@@ -49,7 +68,7 @@ export async function confirmPurchase(formData: FormData) {
 
   // Upload screenshot if provided
   let screenshotUrl: string | null = null
-  if (proofMode === 'screenshot' && screenshot && screenshot.size > 0) {
+  if (screenshot && screenshot.size > 0) {
     const ext = screenshot.name.split('.').pop() || 'jpg'
     const path = `${user.id}/${Date.now()}.${ext}`
 
@@ -103,11 +122,33 @@ export async function confirmPurchase(formData: FormData) {
     payment_method_id: methodId || null,
     reference: reference?.trim() || null,
     screenshot_url: screenshotUrl,
-    status: 'pending',
+    status: isCash ? 'pending' : 'confirmed',
   })
 
   if (paymentError) {
     redirect('/client?error=payment_creation_failed')
+  }
+
+  // Auto-confirm mobile money: create MikroTik user and activate ticket
+  if (!isCash) {
+    const mikrotikProfile = profileMap[pack.duration_hours ?? 0] ?? '12h'
+
+    const result = await createHotspotUser(
+      ticket.login_hotspot,
+      ticket.password_hotspot,
+      mikrotikProfile
+    )
+
+    if (!result.success) {
+      redirect('/client?error=' + encodeURIComponent(result.error ?? 'Erreur MikroTik'))
+    }
+
+    // Set to active but do NOT set activated_at / expires_at yet
+    // Timer starts only when client connects to MikroTik
+    await supabase
+      .from('tickets')
+      .update({ status: 'active' })
+      .eq('id', ticket.id)
   }
 
   revalidatePath('/client/tickets')

@@ -48,6 +48,26 @@ export default async function DashboardLayout({
   const isAdmin = profile.role === 'admin'
   const isSuperAdmin = profile.role === 'superadmin'
 
+  // Count pending cash payments for admin badge
+  let pendingCashCount = 0
+  let unreceivedCashCount = 0
+  if (isAdmin || isSuperAdmin) {
+    const { count } = await supabase
+      .from('payments')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .eq('payment_method', 'cash')
+    pendingCashCount = count ?? 0
+
+    const { count: unreceived } = await supabase
+      .from('payments')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'confirmed')
+      .eq('payment_method', 'cash')
+      .eq('cash_received', false)
+    unreceivedCashCount = unreceived ?? 0
+  }
+
   const superAdminLinks = [
     { href: '/superadmin', label: 'Vue d\'ensemble' },
     { href: '/superadmin/users', label: 'Utilisateurs' },
@@ -57,8 +77,8 @@ export default async function DashboardLayout({
 
   const adminLinks = [
     { href: '/admin', label: 'Tableau de bord' },
-    { href: '/admin/tickets', label: 'Suivi tickets' },
-    { href: '/admin/payments', label: 'Paiements' },
+    { href: '/admin/tickets', label: 'Suivi tickets', badge: pendingCashCount },
+    { href: '/admin/payments', label: 'Validation paiement', badge: unreceivedCashCount },
     { href: '/admin/payment-methods', label: 'Config paiement' },
     { href: '/settings', label: 'Paramètres' },
   ]

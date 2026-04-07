@@ -73,17 +73,11 @@ export async function confirmPayment(formData: FormData) {
         )
       }
 
-      const expiresAt = new Date(
-        now.getTime() + (pack?.duration_hours ?? 12) * 3600 * 1000
-      )
-
+      // Set to active but do NOT set activated_at / expires_at yet
+      // Timer starts only when client connects to MikroTik
       await supabase
         .from('tickets')
-        .update({
-          status: 'active',
-          activated_at: now.toISOString(),
-          expires_at: expiresAt.toISOString(),
-        })
+        .update({ status: 'active' })
         .eq('id', ticket.id)
     }
 
@@ -114,17 +108,11 @@ export async function confirmPayment(formData: FormData) {
       )
     }
 
-    const expiresAt = new Date(
-      now.getTime() + (packData?.duration_hours ?? 12) * 3600 * 1000
-    )
-
+    // Set to active but do NOT set activated_at / expires_at yet
+    // Timer starts only when client connects to MikroTik
     await supabase
       .from('tickets')
-      .update({
-        status: 'active',
-        activated_at: now.toISOString(),
-        expires_at: expiresAt.toISOString(),
-      })
+      .update({ status: 'active' })
       .eq('id', ticket.id)
   }
 

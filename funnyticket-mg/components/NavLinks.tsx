@@ -7,7 +7,7 @@ export function NavLinks({
   links,
   mobile = false,
 }: {
-  links: { href: string; label: string }[]
+  links: { href: string; label: string; badge?: number }[]
   mobile?: boolean
 }) {
   const pathname = usePathname()
@@ -23,7 +23,7 @@ export function NavLinks({
           <Link
             key={link.href}
             href={link.href}
-            className={`rounded-lg px-3 ${mobile ? 'py-1.5' : 'py-2'} text-sm font-medium transition-colors ${
+            className={`relative rounded-lg px-3 ${mobile ? 'py-1.5' : 'py-2'} text-sm font-medium transition-colors ${
               mobile ? 'whitespace-nowrap' : ''
             } ${
               isActive
@@ -32,6 +32,11 @@ export function NavLinks({
             }`}
           >
             {link.label}
+            {link.badge != null && link.badge > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+                {link.badge > 9 ? '9+' : link.badge}
+              </span>
+            )}
           </Link>
         )
       })}

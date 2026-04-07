@@ -1,4 +1,4 @@
-import TicketStatusTracker from '@/components/TicketStatusTracker'
+import AdminTicketsTable from '@/components/AdminTicketsTable'
 
 export default function AdminTicketsPage() {
   return (
@@ -6,7 +6,7 @@ export default function AdminTicketsPage() {
       <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">
         Suivi des tickets
       </h1>
-      <TicketStatusTracker showUser />
+      <AdminTicketsTable />
     </div>
   )
 }

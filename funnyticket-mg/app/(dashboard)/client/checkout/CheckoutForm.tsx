@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCart } from '@/components/CartProvider'
@@ -25,18 +25,23 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
 
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null)
   const [selectedMethodId, setSelectedMethodId] = useState<string>('')
-  const [proofMode, setProofMode] = useState<'reference' | 'screenshot'>('reference')
   const [reference, setReference] = useState('')
   const [preview, setPreview] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [orderPlaced, setOrderPlaced] = useState(false)
 
   const isCash = selectedMethod === 'cash'
   const vendorMethod = methods.find((m) => m.id === selectedMethodId)
 
-  if (items.length === 0) {
-    router.replace('/client/cart')
+  useEffect(() => {
+    if (items.length === 0 && !orderPlaced) {
+      router.replace('/client/cart')
+    }
+  }, [items.length, router, orderPlaced])
+
+  if (items.length === 0 && !orderPlaced) {
     return null
   }
 
@@ -62,12 +67,12 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
       setError('Veuillez choisir un mode de paiement.')
       return
     }
-    if (!isCash && proofMode === 'reference' && !reference.trim()) {
+    if (!isCash && !reference.trim()) {
       setError('Veuillez entrer la référence de transaction.')
       return
     }
-    if (!isCash && proofMode === 'screenshot' && !file) {
-      setError('Veuillez fournir une capture d\'écran.')
+    if (!isCash && !file) {
+      setError('Veuillez fournir une capture d\'écran de la transaction.')
       return
     }
 
@@ -80,11 +85,8 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
       formData.append('method', selectedMethod)
       formData.append('methodId', selectedMethodId)
       if (!isCash) {
-        formData.append('proofMode', proofMode)
-        if (proofMode === 'reference') {
-          formData.append('reference', reference.trim())
-        }
-        if (proofMode === 'screenshot' && file) {
+        formData.append('reference', reference.trim())
+        if (file) {
           formData.append('screenshot', file)
         }
       }
@@ -103,6 +105,7 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
       }
 
       clearCart()
+      setOrderPlaced(true)
       router.push('/client/tickets?success=order_placed')
     } catch {
       setError('Erreur de connexion. Réessayez.')
@@ -243,80 +246,54 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
             <div className="rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-5 space-y-4">
               <h3 className="font-semibold text-gray-800 dark:text-gray-100">Preuve de paiement</h3>
 
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setProofMode('reference')}
-                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium border transition-colors cursor-pointer ${
-                    proofMode === 'reference'
-                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  📝 Référence
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProofMode('screenshot')}
-                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium border transition-colors cursor-pointer ${
-                    proofMode === 'screenshot'
-                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  📸 Capture d&apos;écran
-                </button>
+              <div>
+                <label htmlFor="reference" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Référence de transaction <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="reference"
+                  type="text"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder="Ex: TXN123456789"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 text-gray-900 dark:text-gray-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-800 focus:outline-none placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                />
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  Entrez la référence reçue par SMS après votre transfert.
+                </p>
               </div>
 
-              {proofMode === 'reference' && (
-                <div>
-                  <label htmlFor="reference" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Référence de transaction
-                  </label>
-                  <input
-                    id="reference"
-                    type="text"
-                    value={reference}
-                    onChange={(e) => setReference(e.target.value)}
-                    placeholder="Ex: TXN123456789"
-                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 text-gray-900 dark:text-gray-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-800 focus:outline-none placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                  />
-                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                    Entrez la référence reçue par SMS après votre transfert.
-                  </p>
-                </div>
-              )}
-
-              {proofMode === 'screenshot' && (
-                <div>
-                  <label htmlFor="screenshot" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Capture d&apos;écran de la transaction
-                  </label>
-                  <label
-                    htmlFor="screenshot"
-                    className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 p-6 transition-colors hover:border-indigo-400 hover:bg-indigo-50 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20"
-                  >
-                    {preview ? (
-                      <img src={preview} alt="Aperçu" className="max-h-48 rounded-lg object-contain" />
-                    ) : (
-                      <>
-                        <svg className="h-10 w-10 text-gray-400 dark:text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 16v-8m0 0l-3 3m3-3l3 3M3 16.5V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18v-1.5m-18 0V7.875c0-.621.504-1.125 1.125-1.125H6.75m12 9.75V7.875c0-.621-.504-1.125-1.125-1.125H17.25" />
-                        </svg>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Cliquez pour sélectionner</p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">PNG, JPG ou JPEG (max. 5 Mo)</p>
-                      </>
-                    )}
-                  </label>
-                  <input
-                    id="screenshot"
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg"
-                    onChange={handleFileChange}
-                    className="sr-only"
-                  />
-                </div>
-              )}
+              <div>
+                <label htmlFor="screenshot" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Capture d&apos;écran de la transaction <span className="text-red-500">*</span>
+                </label>
+                <label
+                  htmlFor="screenshot"
+                  className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 p-6 transition-colors hover:border-indigo-400 hover:bg-indigo-50 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20"
+                >
+                  {preview ? (
+                    <img src={preview} alt="Aperçu" className="max-h-48 rounded-lg object-contain" />
+                  ) : (
+                    <>
+                      <svg className="h-10 w-10 text-gray-400 dark:text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16v-8m0 0l-3 3m3-3l3 3M3 16.5V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18v-1.5m-18 0V7.875c0-.621.504-1.125 1.125-1.125H6.75m12 9.75V7.875c0-.621-.504-1.125-1.125-1.125H17.25" />
+                      </svg>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Cliquez pour sélectionner</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">PNG, JPG ou JPEG (max. 5 Mo)</p>
+                    </>
+                  )}
+                </label>
+                <input
+                  id="screenshot"
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg"
+                  onChange={handleFileChange}
+                  className="sr-only"
+                />
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  La capture doit contenir la référence de transaction.
+                </p>
+              </div>
             </div>
           )}
 

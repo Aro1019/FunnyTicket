@@ -24,6 +24,12 @@ export interface TicketStatusResponse {
   totalSeconds: number
   /** Computed usage status */
   usageStatus: 'pending' | 'not_started' | 'in_use' | 'paused' | 'expired'
+  // Admin-only fields
+  user_name?: string
+  user_identifiant?: string
+  payment_id?: string
+  payment_method?: string
+  payment_status?: string
 }
 
 export async function GET() {
@@ -43,7 +49,7 @@ export async function GET() {
     .eq('id', user.id)
     .single()
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'superadmin'
 
   let query = supabase
     .from('tickets')
@@ -61,6 +67,37 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // For admin: fetch associated payments for pending tickets
+  let paymentMap = new Map<string, { id: string; payment_method: string; status: string }>()
+
+  if (isAdmin) {
+    const pendingTickets = (tickets ?? []).filter((t) => t.status === 'pending')
+    const ticketIds = pendingTickets.map((t) => t.id)
+    const orderIds = [...new Set(pendingTickets.map((t) => t.order_id).filter(Boolean))]
+
+    const orConditions: string[] = []
+    if (ticketIds.length > 0) orConditions.push(`ticket_id.in.(${ticketIds.join(',')})`)
+    if (orderIds.length > 0) orConditions.push(`order_id.in.(${orderIds.join(',')})`)
+
+    if (orConditions.length > 0) {
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('id, ticket_id, order_id, payment_method, status')
+        .or(orConditions.join(','))
+
+      for (const p of payments ?? []) {
+        const entry = { id: p.id, payment_method: p.payment_method, status: p.status }
+        if (p.ticket_id) paymentMap.set(p.ticket_id, entry)
+        if (p.order_id) {
+          // Map payment to all tickets in this order
+          for (const t of pendingTickets) {
+            if (t.order_id === p.order_id) paymentMap.set(t.id, entry)
+          }
+        }
+      }
+    }
+  }
+
   const now = Date.now()
 
   // Query MikroTik for each active ticket (uses cached batch call - 1 request/30s)
@@ -76,28 +113,50 @@ export async function GET() {
       let remainingSeconds = totalSeconds
       let usageStatus: TicketStatusResponse['usageStatus'] = 'pending'
 
-      if (ticket.status === 'active' && ticket.activated_at) {
+      if (ticket.status === 'active') {
         // Query MikroTik
         session = await getHotspotActiveSession(ticket.login_hotspot)
 
-        const activatedAt = new Date(ticket.activated_at).getTime()
-        const expiresAt = ticket.expires_at
-          ? new Date(ticket.expires_at).getTime()
-          : activatedAt + totalSeconds * 1000
+        // First connection detected: start the timer
+        if (session.isOnline && !ticket.activated_at) {
+          const activatedAt = new Date()
+          const expiresAt = new Date(activatedAt.getTime() + totalSeconds * 1000)
 
-        elapsedSeconds = Math.max(0, Math.floor((now - activatedAt) / 1000))
-        remainingSeconds = Math.max(0, Math.floor((expiresAt - now) / 1000))
+          await supabase
+            .from('tickets')
+            .update({
+              activated_at: activatedAt.toISOString(),
+              expires_at: expiresAt.toISOString(),
+            })
+            .eq('id', ticket.id)
 
-        if (totalSeconds > 0) {
-          progress = Math.min(100, Math.round((elapsedSeconds / totalSeconds) * 100))
+          ticket.activated_at = activatedAt.toISOString()
+          ticket.expires_at = expiresAt.toISOString()
         }
 
-        if (remainingSeconds <= 0) {
-          usageStatus = 'expired'
-          progress = 100
-        } else if (session.isOnline) {
-          usageStatus = 'in_use'
+        if (ticket.activated_at) {
+          const activatedAt = new Date(ticket.activated_at).getTime()
+          const expiresAt = ticket.expires_at
+            ? new Date(ticket.expires_at).getTime()
+            : activatedAt + totalSeconds * 1000
+
+          elapsedSeconds = Math.max(0, Math.floor((now - activatedAt) / 1000))
+          remainingSeconds = Math.max(0, Math.floor((expiresAt - now) / 1000))
+
+          if (totalSeconds > 0) {
+            progress = Math.min(100, Math.round((elapsedSeconds / totalSeconds) * 100))
+          }
+
+          if (remainingSeconds <= 0) {
+            usageStatus = 'expired'
+            progress = 100
+          } else if (session.isOnline) {
+            usageStatus = 'in_use'
+          } else {
+            usageStatus = 'paused'
+          }
         } else {
+          // Active but not yet connected
           usageStatus = 'not_started'
         }
       }
@@ -122,6 +181,13 @@ export async function GET() {
           ? {
               user_name: (Array.isArray(ticket.user) ? ticket.user[0] : ticket.user)?.full_name,
               user_identifiant: (Array.isArray(ticket.user) ? ticket.user[0] : ticket.user)?.identifiant,
+              ...(paymentMap.has(ticket.id)
+                ? {
+                    payment_id: paymentMap.get(ticket.id)!.id,
+                    payment_method: paymentMap.get(ticket.id)!.payment_method,
+                    payment_status: paymentMap.get(ticket.id)!.status,
+                  }
+                : {}),
             }
           : {}),
       }
