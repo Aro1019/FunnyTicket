@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('payments')
-    .select('*, user:profiles(full_name, identifiant, phone), ticket:tickets(*, pack:packs(name, duration_hours, price)), order:orders(*)')
+    .select('*, user:profiles!payments_user_id_fkey(full_name, identifiant, phone), ticket:tickets(*, pack:packs(name, duration_hours, price)), order:orders(*)')
     .eq('status', 'confirmed')
     .eq('payment_method', 'cash')
     .order('confirmed_at', { ascending: false })
