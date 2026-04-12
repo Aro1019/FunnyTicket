@@ -1,6 +1,7 @@
 // MikroTik Bridge API — Runs on VPS (same network as MikroTik)
 // Exposes HTTP endpoints for Vercel app to manage hotspot users
 
+require('dotenv').config()
 const express = require('express')
 const { RouterOSClient } = require('routeros-client')
 
