@@ -16,7 +16,7 @@ export default async function ForgotPasswordPage({
         Mot de passe oublié
       </h2>
       <p className="mb-6 text-sm text-gray-500">
-        Saisissez votre identifiant ou email pour recevoir un lien de réinitialisation.
+        Saisissez votre identifiant ou email pour recevoir un code de réinitialisation.
       </p>
 
       {params?.error && (
@@ -49,7 +49,7 @@ export default async function ForgotPasswordPage({
           />
         </div>
         <SubmitButton pendingText="Envoi en cours..." className="w-full">
-          Envoyer le lien
+          Envoyer le code
         </SubmitButton>
       </form>
 

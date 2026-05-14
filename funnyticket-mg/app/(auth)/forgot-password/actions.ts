@@ -2,7 +2,6 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { headers } from 'next/headers'
 
 export async function forgotPassword(formData: FormData) {
   const supabase = await createClient()
@@ -36,21 +35,14 @@ export async function forgotPassword(formData: FormData) {
     email = profile.email
   }
 
-  const headersList = await headers()
-  const host = headersList.get('x-forwarded-host') || headersList.get('host') || 'localhost:3000'
-  const protocol = headersList.get('x-forwarded-proto') || 'http'
-  const origin = `${protocol}://${host}`
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/reset-password`,
-  })
+  const { error } = await supabase.auth.resetPasswordForEmail(email)
 
   if (error) {
     redirect('/forgot-password?error=' + encodeURIComponent('Erreur lors de l\'envoi. Réessayez.'))
   }
 
   redirect(
-    '/forgot-password?success=' +
-      encodeURIComponent('Un lien de réinitialisation a été envoyé à votre adresse email.')
+    '/verify-code?email=' + encodeURIComponent(email) +
+    '&success=' + encodeURIComponent('Un code de vérification a été envoyé à votre adresse email.')
   )
 }
