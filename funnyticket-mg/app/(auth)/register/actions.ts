@@ -8,7 +8,7 @@ import { createHotspotUser } from '@/lib/mikrotik'
 export async function register(formData: FormData) {
   const supabase = await createClient()
 
-  const identifiant = (formData.get('identifiant') as string).trim()
+  const identifiant = (formData.get('identifiant') as string).trim().toLowerCase()
   const fullName = (formData.get('fullName') as string).trim()
   const phone = (formData.get('phone') as string).trim()
   const email = (formData.get('email') as string)?.trim() || ''
