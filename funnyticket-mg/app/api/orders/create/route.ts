@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
 import { createHotspotUser } from '@/lib/mikrotik'
 import { notifyAdmins, notifyUser } from '@/lib/web-push'
@@ -203,7 +203,9 @@ export async function POST(request: NextRequest) {
 
   // Auto-confirm mobile money: create MikroTik users and activate tickets
   if (!isCash) {
-    const { data: createdTickets } = await supabase
+    const serviceClient = createServiceClient()
+
+    const { data: createdTickets } = await serviceClient
       .from('tickets')
       .select('*, pack:packs(*)')
       .eq('order_id', order.id)
@@ -227,13 +229,13 @@ export async function POST(request: NextRequest) {
 
       // Set to active but do NOT set activated_at / expires_at yet
       // Timer starts only when client connects to MikroTik
-      await supabase
+      await serviceClient
         .from('tickets')
         .update({ status: 'active' })
         .eq('id', ticket.id)
     }
 
-    await supabase
+    await serviceClient
       .from('orders')
       .update({ status: 'confirmed' })
       .eq('id', order.id)
@@ -262,7 +264,8 @@ export async function POST(request: NextRequest) {
     const weekStart = monday.toISOString().split('T')[0]
 
     // Count confirmed 1000 Ar tickets this week (including this order)
-    const { count: weeklyCount } = await supabase
+    const svc = createServiceClient()
+    const { count: weeklyCount } = await svc
       .from('tickets')
       .select('id, pack:packs!inner(price)', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -271,7 +274,7 @@ export async function POST(request: NextRequest) {
       .gte('created_at', monday.toISOString())
 
     // Check gifts already given this week
-    const { count: giftsGiven } = await supabase
+    const { count: giftsGiven } = await svc
       .from('gifts')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -284,7 +287,7 @@ export async function POST(request: NextRequest) {
 
     if (newGifts > 0) {
       // Find the 1000 Ar pack
-      const { data: cheapPack } = await supabase
+      const { data: cheapPack } = await svc
         .from('packs')
         .select('id, duration_hours')
         .lte('price', 1000)
@@ -303,7 +306,7 @@ export async function POST(request: NextRequest) {
 
           const giftStatus = giftResult.success ? 'active' : 'pending'
 
-          const { data: giftTicket } = await supabase
+          const { data: giftTicket } = await svc
             .from('tickets')
             .insert({
               user_id: user.id,
@@ -316,7 +319,7 @@ export async function POST(request: NextRequest) {
             .single()
 
           if (giftTicket) {
-            await supabase.from('gifts').insert({
+            await svc.from('gifts').insert({
               user_id: user.id,
               ticket_id: giftTicket.id,
               week_start: weekStart,
@@ -324,7 +327,7 @@ export async function POST(request: NextRequest) {
             })
 
             // Notify client of gift
-            await notifyUser(supabase, user.id, {
+            await notifyUser(svc, user.id, {
               title: 'Ticket cadeau offert ! 🎁',
               body: 'Bravo ! Vous avez cumulé 6 tickets cette semaine. Un ticket gratuit vous a été offert !',
               tag: `gift-${giftTicket.id}`,
