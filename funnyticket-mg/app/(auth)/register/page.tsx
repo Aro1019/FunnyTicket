@@ -20,7 +20,14 @@ async function RegisterContent({
 
   return (
     <div className="rounded-2xl bg-white p-8 shadow-lg animate-scale-in">
-      <h2 className="mb-6 text-2xl font-semibold text-gray-800">Créer un compte</h2>
+      <h2 className="mb-2 text-2xl font-semibold text-gray-800">Créer un compte</h2>
+
+      <div className="mb-6 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3 flex items-center gap-2">
+        <span className="text-xl">🎁</span>
+        <p className="text-sm text-amber-800 font-medium">
+          Inscrivez-vous et recevez un <span className="font-bold">ticket WiFi 12h gratuit</span> !
+        </p>
+      </div>
 
       {params?.error && (
         <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 animate-fade-in-down">

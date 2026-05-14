@@ -5,6 +5,17 @@ export function generateHotspotCredentials() {
   return { login, password }
 }
 
+/**
+ * Normalize a Malagasy phone number: strip non-digits, convert +261 to 0.
+ */
+export function normalizePhone(phone: string): string {
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('261') && digits.length === 12) {
+    digits = '0' + digits.slice(3)
+  }
+  return digits
+}
+
 export function formatPrice(price: number): string {
   return new Intl.NumberFormat('fr-MG').format(price) + ' Ar'
 }

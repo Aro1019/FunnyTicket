@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
 import { createHotspotUser } from '@/lib/mikrotik'
-import { notifyAdmins } from '@/lib/web-push'
+import { notifyAdmins, notifyUser } from '@/lib/web-push'
 
 const profileMap: Record<number, string> = {
   12: '12h',
@@ -245,6 +245,95 @@ export async function POST(request: NextRequest) {
       tag: `auto-confirm-${order.id}`,
       url: '/admin/payments',
     }).catch(() => {})
+  }
+
+  // ============================================
+  // Gift system: 6 tickets of 1000 Ar in a week = 1 free ticket
+  // ============================================
+  const cheapTicketsInOrder = cartItems.filter((i) => i.price <= 1000).reduce((sum, i) => sum + i.quantity, 0)
+
+  if (cheapTicketsInOrder > 0) {
+    // Get the start of the current week (Monday)
+    const now = new Date()
+    const dayOfWeek = now.getDay()
+    const monday = new Date(now)
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+    monday.setHours(0, 0, 0, 0)
+    const weekStart = monday.toISOString().split('T')[0]
+
+    // Count confirmed 1000 Ar tickets this week (including this order)
+    const { count: weeklyCount } = await supabase
+      .from('tickets')
+      .select('id, pack:packs!inner(price)', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .lte('pack.price', 1000)
+      .in('status', ['active', 'pending'])
+      .gte('created_at', monday.toISOString())
+
+    // Check gifts already given this week
+    const { count: giftsGiven } = await supabase
+      .from('gifts')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('week_start', weekStart)
+
+    const totalThisWeek = weeklyCount ?? 0
+    const alreadyGifted = giftsGiven ?? 0
+    const giftsEarned = Math.floor(totalThisWeek / 6)
+    const newGifts = giftsEarned - alreadyGifted
+
+    if (newGifts > 0) {
+      // Find the 1000 Ar pack
+      const { data: cheapPack } = await supabase
+        .from('packs')
+        .select('id, duration_hours')
+        .lte('price', 1000)
+        .eq('is_active', true)
+        .order('price', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (cheapPack) {
+        for (let g = 0; g < newGifts; g++) {
+          const { login, password } = generateHotspotCredentials()
+          const mikrotikProfile = profileMap[cheapPack.duration_hours ?? 0] ?? '12h'
+
+          // Create MikroTik user for the gift ticket
+          const giftResult = await createHotspotUser(login, password, mikrotikProfile)
+
+          const giftStatus = giftResult.success ? 'active' : 'pending'
+
+          const { data: giftTicket } = await supabase
+            .from('tickets')
+            .insert({
+              user_id: user.id,
+              pack_id: cheapPack.id,
+              login_hotspot: login,
+              password_hotspot: password,
+              status: giftStatus,
+            })
+            .select()
+            .single()
+
+          if (giftTicket) {
+            await supabase.from('gifts').insert({
+              user_id: user.id,
+              ticket_id: giftTicket.id,
+              week_start: weekStart,
+              qualifying_count: 6,
+            })
+
+            // Notify client of gift
+            await notifyUser(supabase, user.id, {
+              title: 'Ticket cadeau offert ! 🎁',
+              body: 'Bravo ! Vous avez cumulé 6 tickets cette semaine. Un ticket gratuit vous a été offert !',
+              tag: `gift-${giftTicket.id}`,
+              url: '/client/tickets',
+            }).catch(() => {})
+          }
+        }
+      }
+    }
   }
 
   return NextResponse.json({ success: true, orderId: order.id })
