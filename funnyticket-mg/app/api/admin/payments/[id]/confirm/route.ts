@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createHotspotUser } from '@/lib/mikrotik'
+import { notifyUser } from '@/lib/web-push'
 
 const profileMap: Record<number, string> = {
   12: '12h',
@@ -126,6 +127,14 @@ export async function POST(
       confirmed_at: now.toISOString(),
     })
     .eq('id', paymentId)
+
+  // Notify client that payment was confirmed
+  await notifyUser(supabase, payment.user_id, {
+    title: 'Paiement confirmé ✅',
+    body: 'Votre paiement a été validé. Vos tickets sont maintenant actifs !',
+    tag: `payment-confirmed-${paymentId}`,
+    url: '/client/tickets',
+  }).catch(() => {})
 
   return NextResponse.json({ success: true })
 }

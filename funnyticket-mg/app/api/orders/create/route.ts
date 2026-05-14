@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
 import { createHotspotUser } from '@/lib/mikrotik'
+import { notifyAdmins } from '@/lib/web-push'
 
 const profileMap: Record<number, string> = {
   12: '12h',
@@ -190,6 +191,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Erreur création paiement' }, { status: 500 })
   }
 
+  // Notify admins of new order
+  if (isCash) {
+    await notifyAdmins(supabase, {
+      title: 'Nouveau paiement cash 💰',
+      body: `Nouveau paiement cash de ${totalAmount.toLocaleString()} Ar à valider`,
+      tag: `new-order-${order.id}`,
+      url: '/admin/payments',
+    }).catch(() => {})
+  }
+
   // Auto-confirm mobile money: create MikroTik users and activate tickets
   if (!isCash) {
     const { data: createdTickets } = await supabase
@@ -226,6 +237,14 @@ export async function POST(request: NextRequest) {
       .from('orders')
       .update({ status: 'confirmed' })
       .eq('id', order.id)
+
+    // Notify admins of auto-confirmed mobile money payment
+    await notifyAdmins(supabase, {
+      title: 'Paiement mobile money 📱',
+      body: `Paiement de ${totalAmount.toLocaleString()} Ar auto-confirmé (${method})`,
+      tag: `auto-confirm-${order.id}`,
+      url: '/admin/payments',
+    }).catch(() => {})
   }
 
   return NextResponse.json({ success: true, orderId: order.id })
