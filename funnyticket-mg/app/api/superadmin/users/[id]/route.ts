@@ -183,19 +183,16 @@ export async function DELETE(
   // 2) Suppression en cascade côté BDD (ordre important à cause des FK)
   //    notification_log → cascade depuis tickets
   //    push_subscriptions → cascade depuis auth.users
-  const dbSteps: Array<{ label: string; run: () => Promise<{ error: unknown }> }> = [
-    { label: 'gifts', run: async () => await service.from('gifts').delete().eq('user_id', id) },
-    {
-      label: 'welcome_tickets',
-      run: async () => await service.from('welcome_tickets').delete().eq('user_id', id),
-    },
-    { label: 'payments', run: async () => await service.from('payments').delete().eq('user_id', id) },
-    { label: 'tickets', run: async () => await service.from('tickets').delete().eq('user_id', id) },
-    { label: 'orders', run: async () => await service.from('orders').delete().eq('user_id', id) },
+  const dbSteps = [
+    { label: 'gifts', table: 'gifts' as const },
+    { label: 'welcome_tickets', table: 'welcome_tickets' as const },
+    { label: 'payments', table: 'payments' as const },
+    { label: 'tickets', table: 'tickets' as const },
+    { label: 'orders', table: 'orders' as const },
   ]
 
   for (const step of dbSteps) {
-    const { error } = await step.run()
+    const { error } = await service.from(step.table).delete().eq('user_id', id)
     if (error) {
       console.error(`[delete-user] échec suppression ${step.label}:`, error)
       return NextResponse.json(
