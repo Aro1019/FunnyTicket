@@ -107,7 +107,33 @@ export async function register(formData: FormData) {
   })
 
   if (error) {
-    redirectWithError(error.message)
+    // Log complet côté serveur uniquement (jamais exposé à l'utilisateur)
+    console.error('[register] supabase.auth.signUp error:', {
+      message: error.message,
+      status: error.status,
+      name: error.name,
+      identifiant,
+      email,
+    })
+
+    // Mapping vers des messages compréhensibles, sans révéler de détails internes
+    const raw = (error.message || '').toLowerCase()
+    let friendly = 'Impossible de créer votre compte pour le moment. Veuillez réessayer dans quelques instants.'
+
+    if (raw.includes('already registered') || raw.includes('already been registered') || raw.includes('user already')) {
+      friendly = 'Cet email est déjà associé à un compte. Essayez de vous connecter ou de réinitialiser votre mot de passe.'
+    } else if (raw.includes('invalid email')) {
+      friendly = 'Adresse email invalide.'
+    } else if (raw.includes('password')) {
+      friendly = 'Mot de passe refusé. Choisissez un mot de passe plus robuste.'
+    } else if (raw.includes('rate') || raw.includes('too many')) {
+      friendly = 'Trop de tentatives. Patientez quelques minutes avant de réessayer.'
+    } else if (raw.includes('database') || raw.includes('saving new user') || error.status === 500) {
+      friendly =
+        "Une erreur technique nous empêche de créer votre compte. Vérifiez vos informations (notamment l'email et le téléphone) et réessayez. Si le problème persiste, contactez le support."
+    }
+
+    redirectWithError(friendly)
   }
 
   const successMsg =
