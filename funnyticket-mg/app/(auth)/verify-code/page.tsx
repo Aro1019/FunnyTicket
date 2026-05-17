@@ -1,11 +1,19 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 export default function VerifyCodePage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyCodeContent />
+    </Suspense>
+  )
+}
+
+function VerifyCodeContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const email = searchParams.get('email') || ''
