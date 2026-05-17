@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { removeHotspotUser } from '@/lib/mikrotik'
 
 export async function GET(
   request: NextRequest,
@@ -97,5 +98,131 @@ export async function GET(
       totalSpent,
     },
     vendorStats,
+  })
+}
+
+/**
+ * Hard delete d'un client : supprime toutes les données reliées en BDD,
+ * supprime les utilisateurs hotspot MikroTik correspondants, puis supprime
+ * le compte auth.users (cascade sur profiles + push_subscriptions).
+ *
+ * Restrictions : superadmin uniquement, cible obligatoirement un client (role='user'),
+ * impossible de se supprimer soi-même ou de supprimer un admin/superadmin.
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  }
+
+  const { data: myProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (myProfile?.role !== 'superadmin') {
+    return NextResponse.json({ error: 'Accès refusé' }, { status: 403 })
+  }
+
+  const { id } = await params
+
+  if (id === user.id) {
+    return NextResponse.json(
+      { error: 'Impossible de supprimer votre propre compte' },
+      { status: 400 }
+    )
+  }
+
+  const { data: targetProfile } = await supabase
+    .from('profiles')
+    .select('id, role, identifiant')
+    .eq('id', id)
+    .single()
+
+  if (!targetProfile) {
+    return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 })
+  }
+
+  if (targetProfile.role !== 'user') {
+    return NextResponse.json(
+      { error: 'Seuls les clients peuvent être supprimés via cette action.' },
+      { status: 403 }
+    )
+  }
+
+  // Use service client to bypass RLS for cascading cleanup
+  const service = createServiceClient()
+
+  // 1) Récupère les logins hotspot pour nettoyage MikroTik (best-effort)
+  const { data: userTickets } = await service
+    .from('tickets')
+    .select('id, login_hotspot')
+    .eq('user_id', id)
+
+  const mikrotikErrors: string[] = []
+  if (userTickets && userTickets.length > 0) {
+    await Promise.all(
+      userTickets.map(async (t) => {
+        if (!t.login_hotspot) return
+        const res = await removeHotspotUser(t.login_hotspot)
+        if (!res.success && res.error) {
+          mikrotikErrors.push(`${t.login_hotspot}: ${res.error}`)
+        }
+      })
+    )
+  }
+
+  // 2) Suppression en cascade côté BDD (ordre important à cause des FK)
+  //    notification_log → cascade depuis tickets
+  //    push_subscriptions → cascade depuis auth.users
+  const dbSteps: Array<{ label: string; run: () => Promise<{ error: unknown }> }> = [
+    { label: 'gifts', run: () => service.from('gifts').delete().eq('user_id', id) },
+    {
+      label: 'welcome_tickets',
+      run: () => service.from('welcome_tickets').delete().eq('user_id', id),
+    },
+    { label: 'payments', run: () => service.from('payments').delete().eq('user_id', id) },
+    { label: 'tickets', run: () => service.from('tickets').delete().eq('user_id', id) },
+    { label: 'orders', run: () => service.from('orders').delete().eq('user_id', id) },
+  ]
+
+  for (const step of dbSteps) {
+    const { error } = await step.run()
+    if (error) {
+      console.error(`[delete-user] échec suppression ${step.label}:`, error)
+      return NextResponse.json(
+        {
+          error: `Erreur lors de la suppression (${step.label}). Aucune donnée n'a été supprimée définitivement.`,
+        },
+        { status: 500 }
+      )
+    }
+  }
+
+  // 3) Suppression du compte auth.users → cascade sur profiles + push_subscriptions
+  const { error: authError } = await service.auth.admin.deleteUser(id)
+  if (authError) {
+    console.error('[delete-user] échec suppression auth user:', authError)
+    return NextResponse.json(
+      {
+        error:
+          "Données reliées supprimées, mais impossible de supprimer le compte d'authentification. Contactez un administrateur.",
+      },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    success: true,
+    identifiant: targetProfile.identifiant,
+    mikrotikErrors: mikrotikErrors.length > 0 ? mikrotikErrors : undefined,
   })
 }

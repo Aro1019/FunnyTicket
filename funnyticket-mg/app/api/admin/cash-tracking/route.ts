@@ -26,17 +26,20 @@ export async function GET(request: NextRequest) {
   const filter = sp.get('filter') || 'pending' // 'pending' | 'received' | 'all'
   const search = sp.get('search')?.trim() || null
 
+  // Fetch both confirmed cash payments and any legacy pending cash payments
+  // (from the old manual-validation flow, before cash auto-confirmation).
   let query = supabase
     .from('payments')
     .select('*, user:profiles!payments_user_id_fkey(full_name, identifiant, phone), ticket:tickets(*, pack:packs(name, duration_hours, price)), order:orders(*)')
-    .eq('status', 'confirmed')
     .eq('payment_method', 'cash')
-    .order('confirmed_at', { ascending: false })
+    .in('status', ['confirmed', 'pending'])
+    .order('created_at', { ascending: false })
 
   if (filter === 'pending') {
-    query = query.or('cash_received.is.null,cash_received.eq.false')
+    // "À traiter" = legacy pending OR confirmed-but-not-received
+    query = query.or('status.eq.pending,and(status.eq.confirmed,cash_received.is.not.true)')
   } else if (filter === 'received') {
-    query = query.eq('cash_received', true)
+    query = query.eq('status', 'confirmed').eq('cash_received', true)
   }
 
   const { data: payments, error } = await query
@@ -69,6 +72,8 @@ export async function GET(request: NextRequest) {
     return {
       id: p.id,
       amount: p.amount,
+      status: p.status as 'pending' | 'confirmed',
+      created_at: p.created_at,
       confirmed_at: p.confirmed_at,
       cash_received: p.cash_received ?? false,
       cash_received_at: p.cash_received_at,
@@ -77,13 +82,16 @@ export async function GET(request: NextRequest) {
       user_phone: usr?.phone ?? '',
       pack_name: packData?.name ?? (p.order_id ? 'Commande multi-tickets' : ''),
       is_order: !!p.order_id,
+      is_legacy_pending: p.status === 'pending',
     }
   })
 
-  // Count stats
+  // Count stats (across full cash dataset, not just filtered subset)
   const allCash = payments ?? []
-  const pendingCount = allCash.filter((p) => !p.cash_received).length
-  const receivedCount = allCash.filter((p) => p.cash_received).length
+  const pendingCount = allCash.filter(
+    (p) => p.status === 'pending' || (p.status === 'confirmed' && !p.cash_received)
+  ).length
+  const receivedCount = allCash.filter((p) => p.status === 'confirmed' && p.cash_received).length
 
   return NextResponse.json({
     payments: results,

@@ -60,6 +60,7 @@ export default function UserDetailPage() {
   const [data, setData] = useState<UserDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [roleLoading, setRoleLoading] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [tab, setTab] = useState<'tickets' | 'payments'>('tickets')
 
   useEffect(() => {
@@ -91,6 +92,48 @@ export default function UserDetailPage() {
       )
     }
     setRoleLoading(false)
+  }
+
+  async function handleDelete() {
+    if (!data) return
+    const expected = data.profile.identifiant
+    const typed = window.prompt(
+      `⚠️ SUPPRESSION DÉFINITIVE\n\n` +
+        `Cette action va supprimer :\n` +
+        `• Le compte de "${data.profile.full_name}" (@${expected})\n` +
+        `• Tous ses tickets (${data.stats.totalTickets}) et utilisateurs hotspot MikroTik\n` +
+        `• Tous ses paiements, commandes, cadeaux et notifications\n\n` +
+        `Cette action est IRRÉVERSIBLE.\n\n` +
+        `Pour confirmer, tapez l'identifiant exact du client :\n${expected}`
+    )
+
+    if (typed === null) return
+    if (typed.trim() !== expected) {
+      alert('Identifiant incorrect. Suppression annulée.')
+      return
+    }
+
+    setDeleteLoading(true)
+    try {
+      const res = await fetch(`/api/superadmin/users/${id}`, { method: 'DELETE' })
+      const result = await res.json()
+      if (!res.ok) {
+        alert(result.error || 'Erreur lors de la suppression')
+        setDeleteLoading(false)
+        return
+      }
+      let msg = `Compte @${result.identifiant} supprimé définitivement.`
+      if (result.mikrotikErrors?.length) {
+        msg +=
+          `\n\nAvertissement : ${result.mikrotikErrors.length} utilisateur(s) hotspot n'ont pas pu être supprimés sur MikroTik ` +
+          `(probablement déjà absents). Vérifiez manuellement si besoin.`
+      }
+      alert(msg)
+      router.push('/superadmin/users')
+    } catch (err) {
+      alert('Erreur réseau : ' + (err instanceof Error ? err.message : 'inconnue'))
+      setDeleteLoading(false)
+    }
   }
 
   if (loading) {
@@ -322,6 +365,27 @@ export default function UserDetailPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Danger zone — clients uniquement */}
+      {profile.role === 'user' && (
+        <div className="mt-8 rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/10 p-5">
+          <h2 className="text-sm font-semibold text-red-800 dark:text-red-300 flex items-center gap-2">
+            <span aria-hidden>⚠️</span> Zone dangereuse
+          </h2>
+          <p className="text-xs text-red-700 dark:text-red-400 mt-1 leading-relaxed">
+            La suppression définitive efface le compte du client, tous ses tickets, paiements,
+            commandes, cadeaux, notifications et utilisateurs hotspot MikroTik associés. Cette
+            action est <strong>irréversible</strong>.
+          </p>
+          <button
+            onClick={handleDelete}
+            disabled={deleteLoading}
+            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors cursor-pointer"
+          >
+            {deleteLoading ? 'Suppression en cours…' : '🗑️ Supprimer définitivement ce client'}
+          </button>
         </div>
       )}
     </div>

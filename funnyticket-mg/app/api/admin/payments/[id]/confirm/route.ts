@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createHotspotUser } from '@/lib/mikrotik'
 import { notifyUser } from '@/lib/web-push'
+import { tryGrantWelcomeBonus } from '@/lib/welcome-bonus'
 
 const profileMap: Record<number, string> = {
   12: '12h',
@@ -128,13 +129,18 @@ export async function POST(
     })
     .eq('id', paymentId)
 
+  // Bonus ticket cadeau au 1er achat confirmé (anti-abus par téléphone).
+  const bonusGranted = await tryGrantWelcomeBonus(supabase, payment.user_id, paymentId)
+
   // Notify client that payment was confirmed
   await notifyUser(supabase, payment.user_id, {
     title: 'Paiement confirmé ✅',
-    body: 'Votre paiement a été validé. Vos tickets sont maintenant actifs !',
+    body: bonusGranted
+      ? 'Votre paiement a été validé. Vos tickets sont actifs et un ticket WiFi 12h bonus vous a été offert ! 🎁'
+      : 'Votre paiement a été validé. Vos tickets sont maintenant actifs !',
     tag: `payment-confirmed-${paymentId}`,
     url: '/client/tickets',
   }).catch(() => {})
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, bonusGranted })
 }

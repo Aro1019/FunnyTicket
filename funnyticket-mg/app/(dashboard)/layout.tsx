@@ -7,6 +7,7 @@ import { NavLinks } from '@/components/NavLinks'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { CartProvider } from '@/components/CartProvider'
 import { CartBadge } from '@/components/CartBadge'
+import { ChangelogModal } from '@/components/ChangelogModal'
 
 export default async function DashboardLayout({
   children,
@@ -48,24 +49,25 @@ export default async function DashboardLayout({
   const isAdmin = profile.role === 'admin'
   const isSuperAdmin = profile.role === 'superadmin'
 
-  // Count pending cash payments for admin badge
-  let pendingCashCount = 0
+  // Count cash sales awaiting physical collection (encaissement) for admin badge.
+  // Legacy `pending` cash payments (from the old manual-validation flow) are
+  // also counted so they remain visible until processed.
   let unreceivedCashCount = 0
   if (isAdmin || isSuperAdmin) {
-    const { count } = await supabase
-      .from('payments')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending')
-      .eq('payment_method', 'cash')
-    pendingCashCount = count ?? 0
-
-    const { count: unreceived } = await supabase
-      .from('payments')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'confirmed')
-      .eq('payment_method', 'cash')
-      .eq('cash_received', false)
-    unreceivedCashCount = unreceived ?? 0
+    const [{ count: unreceived }, { count: legacyPending }] = await Promise.all([
+      supabase
+        .from('payments')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'confirmed')
+        .eq('payment_method', 'cash')
+        .eq('cash_received', false),
+      supabase
+        .from('payments')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .eq('payment_method', 'cash'),
+    ])
+    unreceivedCashCount = (unreceived ?? 0) + (legacyPending ?? 0)
   }
 
   const superAdminLinks = [
@@ -77,8 +79,8 @@ export default async function DashboardLayout({
 
   const adminLinks = [
     { href: '/admin', label: 'Tableau de bord' },
-    { href: '/admin/tickets', label: 'Suivi tickets', badge: pendingCashCount },
-    { href: '/admin/payments', label: 'Validation paiement', badge: unreceivedCashCount },
+    { href: '/admin/tickets', label: 'Suivi tickets' },
+    { href: '/admin/payments', label: 'Encaissements', badge: unreceivedCashCount },
     { href: '/admin/payment-methods', label: 'Config paiement' },
     { href: '/settings', label: 'Paramètres' },
   ]
@@ -135,6 +137,9 @@ export default async function DashboardLayout({
 
       {/* Content */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+
+      {/* Changelog modal — only shown to clients */}
+      {!isAdmin && !isSuperAdmin && <ChangelogModal />}
     </div>
     </CartProvider>
   )

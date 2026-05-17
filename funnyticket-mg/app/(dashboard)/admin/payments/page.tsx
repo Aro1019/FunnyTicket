@@ -5,7 +5,9 @@ import { useEffect, useState, useCallback } from 'react'
 interface CashPayment {
   id: string
   amount: number
-  confirmed_at: string
+  status: 'pending' | 'confirmed'
+  created_at: string
+  confirmed_at: string | null
   cash_received: boolean
   cash_received_at: string | null
   user_name: string
@@ -13,6 +15,7 @@ interface CashPayment {
   user_phone: string
   pack_name: string
   is_order: boolean
+  is_legacy_pending: boolean
 }
 
 interface Stats {
@@ -107,6 +110,34 @@ export default function CashTrackingPage() {
     }
   }
 
+  // Validate a legacy pending cash payment (old manual-validation flow):
+  // calls the existing confirm endpoint which auto-creates MikroTik users and
+  // activates the tickets. After success we refresh the list.
+  async function validateLegacy(paymentId: string) {
+    if (!confirm('Valider cette vente legacy ? Les tickets seront activés sur MikroTik.')) return
+    setToggling(paymentId)
+    try {
+      const res = await fetch(`/api/admin/payments/${paymentId}/confirm`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? 'Erreur lors de la validation.')
+        return
+      }
+      // Refresh from server to reflect new status
+      const params = new URLSearchParams()
+      params.set('filter', filter)
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const r = await fetch(`/api/admin/cash-tracking?${params}`)
+      const fresh = await r.json()
+      setPayments(fresh.payments ?? [])
+      setStats(fresh.stats ?? { pending: 0, received: 0, total: 0 })
+    } catch {
+      alert('Erreur réseau')
+    } finally {
+      setToggling(null)
+    }
+  }
+
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
       active
@@ -116,15 +147,19 @@ export default function CashTrackingPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">
-        Validation paiement
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+        Encaissements espèces
       </h1>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        Suivi des ventes en espèces : marquez chaque paiement comme encaissé dès réception
+        physique du cash. Les tickets sont déjà activés automatiquement côté client.
+      </p>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="rounded-2xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 text-center">
           <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{stats.pending}</p>
-          <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">Non encaissé</p>
+          <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">À traiter</p>
         </div>
         <div className="rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4 text-center">
           <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.received}</p>
@@ -140,7 +175,7 @@ export default function CashTrackingPage() {
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="flex gap-2">
           <button onClick={() => setFilter('pending')} className={tabClass(filter === 'pending')}>
-            Non encaissé ({stats.pending})
+            À traiter ({stats.pending})
           </button>
           <button onClick={() => setFilter('received')} className={tabClass(filter === 'received')}>
             Encaissé ({stats.received})
@@ -176,7 +211,7 @@ export default function CashTrackingPage() {
         ) : payments.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             {filter === 'pending'
-              ? 'Tous les paiements en espèces ont été encaissés.'
+              ? 'Aucun paiement à traiter : tout est à jour.'
               : filter === 'received'
                 ? 'Aucun paiement encaissé.'
                 : 'Aucun paiement en espèces.'}
@@ -186,7 +221,7 @@ export default function CashTrackingPage() {
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-indigo-600 dark:bg-indigo-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Encaissé</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Action</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Client</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Pack</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Montant</th>
@@ -196,28 +231,46 @@ export default function CashTrackingPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {payments.map((payment) => (
-                  <tr key={payment.id} className="hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
-                    {/* Checkbox */}
+                  <tr
+                    key={payment.id}
+                    className={`transition-colors ${
+                      payment.is_legacy_pending
+                        ? 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100 dark:hover:bg-orange-900/20'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    {/* Action: validate legacy OR toggle received */}
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleReceived(payment.id, payment.cash_received)}
-                        disabled={toggling === payment.id}
-                        className="cursor-pointer disabled:cursor-wait"
-                      >
-                        <div
-                          className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
-                            payment.cash_received
-                              ? 'border-green-500 bg-green-500'
-                              : 'border-gray-300 dark:border-gray-500 hover:border-indigo-400'
-                          }`}
+                      {payment.is_legacy_pending ? (
+                        <button
+                          onClick={() => validateLegacy(payment.id)}
+                          disabled={toggling === payment.id}
+                          className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-orange-700 transition-colors disabled:bg-orange-300 cursor-pointer disabled:cursor-wait whitespace-nowrap"
+                          title="Valider cette ancienne vente : crée les utilisateurs MikroTik et active les tickets"
                         >
-                          {payment.cash_received && (
-                            <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      </button>
+                          {toggling === payment.id ? '...' : 'Valider'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => toggleReceived(payment.id, payment.cash_received)}
+                          disabled={toggling === payment.id}
+                          className="cursor-pointer disabled:cursor-wait"
+                        >
+                          <div
+                            className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
+                              payment.cash_received
+                                ? 'border-green-500 bg-green-500'
+                                : 'border-gray-300 dark:border-gray-500 hover:border-indigo-400'
+                            }`}
+                          >
+                            {payment.cash_received && (
+                              <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                        </button>
+                      )}
                     </td>
                     {/* Client */}
                     <td className="px-4 py-3">
@@ -230,11 +283,18 @@ export default function CashTrackingPage() {
                     {/* Pack */}
                     <td className="px-4 py-3">
                       <p className="text-sm text-gray-900 dark:text-gray-100">{payment.pack_name}</p>
-                      {payment.is_order && (
-                        <span className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
-                          📦 Commande
-                        </span>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {payment.is_order && (
+                          <span className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
+                            📦 Commande
+                          </span>
+                        )}
+                        {payment.is_legacy_pending && (
+                          <span className="inline-flex items-center rounded-full bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:text-orange-300">
+                            ⚠️ À valider (ancien flux)
+                          </span>
+                        )}
+                      </div>
                     </td>
                     {/* Amount */}
                     <td className="px-4 py-3">
@@ -242,16 +302,21 @@ export default function CashTrackingPage() {
                     </td>
                     {/* Confirmed at */}
                     <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {payment.confirmed_at
-                        ? new Date(payment.confirmed_at).toLocaleString('fr-FR', {
-                            day: '2-digit', month: '2-digit', year: '2-digit',
-                            hour: '2-digit', minute: '2-digit',
-                          })
-                        : '—'}
+                      {(() => {
+                        const d = payment.confirmed_at ?? payment.created_at
+                        return d
+                          ? new Date(d).toLocaleString('fr-FR', {
+                              day: '2-digit', month: '2-digit', year: '2-digit',
+                              hour: '2-digit', minute: '2-digit',
+                            })
+                          : '—'
+                      })()}
                     </td>
                     {/* Cash received at */}
                     <td className="px-4 py-3 text-xs whitespace-nowrap">
-                      {payment.cash_received && payment.cash_received_at ? (
+                      {payment.is_legacy_pending ? (
+                        <span className="text-orange-600 dark:text-orange-400">À valider</span>
+                      ) : payment.cash_received && payment.cash_received_at ? (
                         <span className="text-green-600 dark:text-green-400 font-medium">
                           {new Date(payment.cash_received_at).toLocaleString('fr-FR', {
                             day: '2-digit', month: '2-digit', year: '2-digit',

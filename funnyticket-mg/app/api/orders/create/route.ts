@@ -3,6 +3,11 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateHotspotCredentials } from '@/lib/utils'
 import { createHotspotUser } from '@/lib/mikrotik'
 import { notifyAdmins, notifyUser } from '@/lib/web-push'
+import { tryGrantWelcomeBonus } from '@/lib/welcome-bonus'
+
+// Limite anti-impayé : nombre maximum de ventes espèces non encaissées
+// qu'un même client peut avoir simultanément.
+const MAX_UNRECEIVED_CASH_PER_USER = 2
 
 const profileMap: Record<number, string> = {
   12: '12h',
@@ -64,6 +69,26 @@ export async function POST(request: NextRequest) {
   }
 
   const isCash = method === 'cash'
+
+  // Cash: enforce per-user limit of unreceived cash sales (anti-impayé)
+  if (isCash) {
+    const { count: unreceivedCount } = await supabase
+      .from('payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('payment_method', 'cash')
+      .eq('status', 'confirmed')
+      .eq('cash_received', false)
+
+    if ((unreceivedCount ?? 0) >= MAX_UNRECEIVED_CASH_PER_USER) {
+      return NextResponse.json(
+        {
+          error: `Vous avez déjà ${unreceivedCount} vente(s) en espèces non encaissée(s). Merci de régler auprès du vendeur avant d'en créer une nouvelle.`,
+        },
+        { status: 400 }
+      )
+    }
+  }
 
   // Validate proof for non-cash: both reference AND screenshot required
   if (!isCash) {
@@ -175,7 +200,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Erreur création tickets' }, { status: 500 })
   }
 
-  // Create payment record
+  // Create payment record (auto-confirmed for both cash and mobile money)
+  // Cash sales are tracked separately via the `cash_received` flag.
+  const nowIso = new Date().toISOString()
   const { data: payment, error: paymentError } = await supabase.from('payments').insert({
     order_id: order.id,
     user_id: user.id,
@@ -184,68 +211,79 @@ export async function POST(request: NextRequest) {
     payment_method_id: methodId || null,
     reference: reference?.trim() || null,
     screenshot_url: screenshotUrl,
-    status: isCash ? 'pending' : 'confirmed',
+    status: 'confirmed',
+    confirmed_at: nowIso,
+    cash_received: isCash ? false : null,
   }).select().single()
 
   if (paymentError || !payment) {
     return NextResponse.json({ error: 'Erreur création paiement' }, { status: 500 })
   }
 
-  // Notify admins of new order
-  if (isCash) {
-    await notifyAdmins(supabase, {
-      title: 'Nouveau paiement cash 💰',
-      body: `Nouveau paiement cash de ${totalAmount.toLocaleString()} Ar à valider`,
-      tag: `new-order-${order.id}`,
-      url: '/admin/payments',
-    }).catch(() => {})
-  }
+  // Auto-confirm: create MikroTik users and activate tickets for ALL payment
+  // methods (cash included). The encaissement is tracked separately admin-side.
+  const serviceClient = createServiceClient()
 
-  // Auto-confirm mobile money: create MikroTik users and activate tickets
-  if (!isCash) {
-    const serviceClient = createServiceClient()
+  const { data: createdTickets } = await serviceClient
+    .from('tickets')
+    .select('*, pack:packs(*)')
+    .eq('order_id', order.id)
 
-    const { data: createdTickets } = await serviceClient
-      .from('tickets')
-      .select('*, pack:packs(*)')
-      .eq('order_id', order.id)
+  for (const ticket of createdTickets ?? []) {
+    const pack = Array.isArray(ticket.pack) ? ticket.pack[0] : ticket.pack
+    const mikrotikProfile = profileMap[pack?.duration_hours ?? 0] ?? '12h'
 
-    for (const ticket of createdTickets ?? []) {
-      const pack = Array.isArray(ticket.pack) ? ticket.pack[0] : ticket.pack
-      const mikrotikProfile = profileMap[pack?.duration_hours ?? 0] ?? '12h'
+    const result = await createHotspotUser(
+      ticket.login_hotspot,
+      ticket.password_hotspot,
+      mikrotikProfile
+    )
 
-      const result = await createHotspotUser(
-        ticket.login_hotspot,
-        ticket.password_hotspot,
-        mikrotikProfile
+    if (!result.success) {
+      return NextResponse.json(
+        { error: `Erreur MikroTik pour ${ticket.login_hotspot}: ${result.error ?? 'inconnue'}` },
+        { status: 500 }
       )
-
-      if (!result.success) {
-        return NextResponse.json(
-          { error: `Erreur MikroTik pour ${ticket.login_hotspot}: ${result.error ?? 'inconnue'}` },
-          { status: 500 }
-        )
-      }
-
-      // Set to active but do NOT set activated_at / expires_at yet
-      // Timer starts only when client connects to MikroTik
-      await serviceClient
-        .from('tickets')
-        .update({ status: 'active' })
-        .eq('id', ticket.id)
     }
 
+    // Set to active but do NOT set activated_at / expires_at yet
+    // Timer starts only when client connects to MikroTik
     await serviceClient
-      .from('orders')
-      .update({ status: 'confirmed' })
-      .eq('id', order.id)
+      .from('tickets')
+      .update({ status: 'active' })
+      .eq('id', ticket.id)
+  }
 
-    // Notify admins of auto-confirmed mobile money payment
+  await serviceClient
+    .from('orders')
+    .update({ status: 'confirmed' })
+    .eq('id', order.id)
+
+  // Notify admins
+  if (isCash) {
+    await notifyAdmins(supabase, {
+      title: 'Nouvelle vente espèces 💵',
+      body: `${totalAmount.toLocaleString()} Ar à encaisser auprès du client.`,
+      tag: `cash-sale-${order.id}`,
+      url: '/admin/payments',
+    }).catch(() => {})
+  } else {
     await notifyAdmins(supabase, {
       title: 'Paiement mobile money 📱',
       body: `Paiement de ${totalAmount.toLocaleString()} Ar auto-confirmé (${method})`,
       tag: `auto-confirm-${order.id}`,
       url: '/admin/payments',
+    }).catch(() => {})
+  }
+
+  // Welcome bonus on 1st confirmed payment (anti-abuse keyed on phone)
+  const bonusGranted = await tryGrantWelcomeBonus(serviceClient, user.id, payment.id)
+  if (bonusGranted) {
+    await notifyUser(serviceClient, user.id, {
+      title: 'Ticket bonus offert ! 🎁',
+      body: 'Merci pour votre premier achat ! Un ticket WiFi 12h gratuit vous a été offert.',
+      tag: `welcome-bonus-${user.id}`,
+      url: '/client/tickets',
     }).catch(() => {})
   }
 

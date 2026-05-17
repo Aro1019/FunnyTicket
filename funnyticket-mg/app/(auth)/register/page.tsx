@@ -6,7 +6,13 @@ import { SubmitButton } from '@/components/SubmitButton'
 export default function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{
+    error?: string
+    identifiant?: string
+    fullName?: string
+    phone?: string
+    email?: string
+  }>
 }) {
   return <RegisterContent searchParams={searchParams} />
 }
@@ -14,7 +20,13 @@ export default function RegisterPage({
 async function RegisterContent({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{
+    error?: string
+    identifiant?: string
+    fullName?: string
+    phone?: string
+    email?: string
+  }>
 }) {
   const params = await searchParams
 
@@ -25,7 +37,8 @@ async function RegisterContent({
       <div className="mb-6 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3 flex items-center gap-2">
         <span className="text-xl">🎁</span>
         <p className="text-sm text-amber-800 font-medium">
-          Inscrivez-vous et recevez un <span className="font-bold">ticket WiFi 12h gratuit</span> !
+          Dès votre <span className="font-bold">premier achat</span>, recevez en bonus un{' '}
+          <span className="font-bold">ticket WiFi 12h gratuit</span> !
         </p>
       </div>
 
@@ -46,6 +59,7 @@ async function RegisterContent({
             type="text"
             required
             minLength={3}
+            defaultValue={params?.identifiant ?? ''}
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 lowercase focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400 placeholder:normal-case"
             placeholder="votre_identifiant"
           />
@@ -59,6 +73,7 @@ async function RegisterContent({
             id="fullName"
             name="fullName"
             type="text"
+            defaultValue={params?.fullName ?? ''}
             required
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="Jean Dupont"
@@ -72,6 +87,7 @@ async function RegisterContent({
             id="phone"
             name="phone"
             type="tel"
+            defaultValue={params?.phone ?? ''}
             required
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="034 00 000 00"
@@ -79,12 +95,14 @@ async function RegisterContent({
         </div>
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
-            Email <span className="text-xs text-gray-400">(optionnel)</span>
+            Email <span className="text-red-500">*</span>
           </label>
           <input
             id="email"
             name="email"
+            defaultValue={params?.email ?? ''}
             type="email"
+            required
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none placeholder:text-gray-400"
             placeholder="votre@email.com"
           />

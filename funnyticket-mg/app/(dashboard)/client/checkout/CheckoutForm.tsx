@@ -235,8 +235,12 @@ export function CheckoutForm({ methods }: { methods: PaymentMethod[] }) {
             <div className="rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-5">
               <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-2">💵 Paiement en espèces</h3>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Payez <strong>{formatPrice(totalPrice)}</strong> directement chez le vendeur.
-                Vos tickets seront activés après confirmation.
+                Vos tickets sont activés <strong>immédiatement</strong>. Pensez à régler{' '}
+                <strong>{formatPrice(totalPrice)}</strong> auprès du vendeur le plus rapidement
+                possible.
+              </p>
+              <p className="mt-2 text-xs text-yellow-700 dark:text-yellow-300">
+                ⚠️ Limite : 2 ventes en espèces non encaissées maximum à la fois.
               </p>
             </div>
           )}
