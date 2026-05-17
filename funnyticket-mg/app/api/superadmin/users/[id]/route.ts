@@ -184,14 +184,14 @@ export async function DELETE(
   //    notification_log → cascade depuis tickets
   //    push_subscriptions → cascade depuis auth.users
   const dbSteps: Array<{ label: string; run: () => Promise<{ error: unknown }> }> = [
-    { label: 'gifts', run: () => service.from('gifts').delete().eq('user_id', id) },
+    { label: 'gifts', run: async () => await service.from('gifts').delete().eq('user_id', id) },
     {
       label: 'welcome_tickets',
-      run: () => service.from('welcome_tickets').delete().eq('user_id', id),
+      run: async () => await service.from('welcome_tickets').delete().eq('user_id', id),
     },
-    { label: 'payments', run: () => service.from('payments').delete().eq('user_id', id) },
-    { label: 'tickets', run: () => service.from('tickets').delete().eq('user_id', id) },
-    { label: 'orders', run: () => service.from('orders').delete().eq('user_id', id) },
+    { label: 'payments', run: async () => await service.from('payments').delete().eq('user_id', id) },
+    { label: 'tickets', run: async () => await service.from('tickets').delete().eq('user_id', id) },
+    { label: 'orders', run: async () => await service.from('orders').delete().eq('user_id', id) },
   ]
 
   for (const step of dbSteps) {
